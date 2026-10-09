@@ -5,18 +5,22 @@ import SwiftUI
 struct AboutView: View {
     @Bindable var bluetooth: BluetoothManager
     let onBack: () -> Void
+    /// False when embedded in the settings window, which supplies its own title.
+    var showsHeader: Bool = true
 
     @State private var fitTestActive = false
     @State private var diagnosticsCopied = false
 
     private var status: BudsStatus { bluetooth.status }
-    private var tint: Color { bluetooth.connectedModel?.tint ?? .blue }
+    private var tint: Color { Color.accentColor }
     private var supportsFitTest: Bool { bluetooth.connectedModel?.supportsAdaptiveANC == true }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if showsHeader {
+                header
+                Divider()
+            }
             ScrollView {
                 VStack(spacing: 18) {
                     infoSection
@@ -26,7 +30,7 @@ struct AboutView: View {
                 .padding(18)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { bluetooth.requestAboutInfo() }
         .onDisappear { if fitTestActive { bluetooth.setFitTest(active: false) } }
     }
@@ -180,7 +184,7 @@ struct AboutView: View {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
             VStack(spacing: 0) { content() }
                 .padding(.horizontal, 12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.glassCard))
         }
     }
 

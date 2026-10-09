@@ -80,6 +80,12 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// While true, connection failures don't surface an error (auto-connect
     /// attempts shouldn't pop error UI when the buds are simply away).
     private var silentConnect = false
+    /// Whether the in-flight attempt may page the buds (`openConnection`) to
+    /// bring up a Bluetooth link the Mac doesn't already have. Only an explicit
+    /// user action may: background auto-connect must never pull the buds away
+    /// from a phone they're connected to — it only attaches when macOS itself
+    /// already has the buds connected.
+    private var allowPaging = true
     /// Invoked when an auto-connect (triggered by a device connecting) succeeds,
     /// so the UI can surface the panel — an AirPods-like pop-up on connect.
     var onAutoConnected: (@MainActor () -> Void)?
@@ -131,7 +137,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
             forConnectNotifications: self,
             selector: #selector(deviceDidConnect(_:device:))
         )
-        attemptAutoConnect(notify: false)
+        // Notify so buds already connected at launch get the connect card.
+        attemptAutoConnect(notify: true)
     }
 
     @objc nonisolated func deviceDidConnect(
@@ -141,19 +148,28 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         let name = device?.name ?? ""
         Task { @MainActor in
             guard self.isGalaxyBudsName(name), !self.isConnected else { return }
-            self.attemptAutoConnect(notify: true)
+            self.attemptAutoConnect(notify: true, justConnected: device)
         }
     }
 
-    /// Connects to the first already-connected, paired Galaxy Buds, if any.
-    private func attemptAutoConnect(notify: Bool) {
+    /// Attaches the control channel to Galaxy Buds that macOS already has
+    /// connected — at launch, or when a connect notification reports macOS
+    /// just connected them. Never pages the buds itself.
+    private func attemptAutoConnect(notify: Bool, justConnected: IOBluetoothDevice? = nil) {
         guard bluetoothReady, !isConnected, rfcommChannel == nil, !isConnecting,
-              !handedOffToPhone else { return }
-        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else { return }
-        for device in paired where device.isConnected() && isGalaxyBudsName(device.name ?? "") {
+              !handedOffToPhone, !suppressAutoConnect else { return }
+        let candidates: [IOBluetoothDevice]
+        if let justConnected {
+            candidates = [justConnected]
+        } else {
+            let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []
+            candidates = paired.filter { $0.isConnected() }
+        }
+        for device in candidates where isGalaxyBudsName(device.name ?? "") {
             autoConnectShouldNotify = notify
             let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
-            connect(to: DiscoveredDevice(device: device), model: model, silent: true)
+            connect(to: DiscoveredDevice(device: device), model: model,
+                    silent: true, allowPaging: false)
             return
         }
     }
@@ -206,7 +222,10 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         isScanning = false
     }
 
-    func connect(to device: DiscoveredDevice, model: BudsModel, silent: Bool = false) {
+    func connect(
+        to device: DiscoveredDevice, model: BudsModel,
+        silent: Bool = false, allowPaging: Bool = true
+    ) {
         // Single in-flight attempt: a second connect (e.g. auto-connect racing
         // the wizard) must not reset the timeout or flip `silentConnect`, which
         // previously left the wizard stuck on "Connecting" forever. A foreground
@@ -218,6 +237,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         }
         isConnecting = true
         silentConnect = silent
+        self.allowPaging = allowPaging
         // Only a foreground connect clears a surfaced error. A silent
         // auto-connect used to clear it too, which flipped the wizard from
         // "Connection Failed" back to the spinner every cooldown and then back
@@ -232,7 +252,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         connectDeadline = Date().addingTimeInterval(connectBudget)
         connectGeneration &+= 1
         DiagnosticsLog.shared.log(
-            "connect: \(device.name) [\(device.address)] as \(model.rawValue), silent=\(silent)")
+            "connect: \(device.name) [\(device.address)] as \(model.rawValue), silent=\(silent), paging=\(allowPaging)")
         attemptConnection(device: device, model: model)
     }
 
@@ -243,6 +263,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         let target = device.device
         let uuidStrings = model.serviceUUIDCandidates
         let generation = connectGeneration
+        let mayPage = allowPaging
         DiagnosticsLog.shared.log("attempt \(connectRetryCount + 1)/\(maxConnectRetries + 1) started")
         startAttemptTimeout(device: device, model: model, generation: generation)
 
@@ -252,7 +273,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         // so its data callbacks bind to the always-pumping main run loop.
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            let channelId = self.resolveChannel(target: target, uuidStrings: uuidStrings)
+            let channelId = self.resolveChannel(
+                target: target, uuidStrings: uuidStrings, allowPaging: mayPage)
             await MainActor.run {
                 guard self.isConnecting, self.connectGeneration == generation else { return }
                 if let channelId {
@@ -330,8 +352,16 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// background thread; returns nil if the channel can't be resolved.
     private nonisolated func resolveChannel(
         target: IOBluetoothDevice,
-        uuidStrings: [String]
+        uuidStrings: [String],
+        allowPaging: Bool
     ) -> BluetoothRFCOMMChannelID? {
+        // Without a link of our own, both openConnection and an SDP query would
+        // page the buds and drag them over from the phone. Background attempts
+        // stop here; only a user-initiated connect may bring the link up.
+        if !allowPaging && !target.isConnected() {
+            DiagnosticsLog.shared.log("auto-connect: buds not connected to this Mac, not paging them")
+            return nil
+        }
         if !target.isConnected() {
             let started = Date()
             let result = target.openConnection()
@@ -449,7 +479,12 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         handedOffToPhone = false
         suppressAutoConnect = false
         lastAutoAttempt = nil
-        pollAutoConnect()
+        guard !isConnected, !isConnecting,
+              let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice],
+              let device = paired.first(where: { isGalaxyBudsName($0.name ?? "") })
+        else { return }
+        let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
+        connect(to: DiscoveredDevice(device: device), model: model, silent: true, allowPaging: true)
     }
 
     /// Polled (~every 2s) by the app: connects to an already-connected paired
@@ -469,11 +504,6 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
                     : "channel still open")
             return
         }
-        notePollSkip(nil)
-        // IOBluetooth `isConnected()` is unreliable for these buds (returns false
-        // even while connected), so we can't gate on it. Instead, attempt the
-        // connection on a cooldown — it succeeds when the buds are reachable and
-        // fails quietly (silentConnect) when they're away.
         if let last = lastAutoAttempt, Date().timeIntervalSince(last) < autoConnectCooldown {
             return
         }
@@ -483,11 +513,19 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
             notePollSkip("no paired Galaxy Buds")
             return
         }
+        // Only attach when macOS itself already has the buds connected (you
+        // picked the Mac, or they switched over on their own). Paging them
+        // from here used to steal them from a phone they were in use with.
+        guard device.isConnected() else {
+            notePollSkip("buds not connected to this Mac")
+            return
+        }
+        notePollSkip(nil)
 
         lastAutoAttempt = Date()
         autoConnectShouldNotify = true
         let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
-        connect(to: DiscoveredDevice(device: device), model: model, silent: true)
+        connect(to: DiscoveredDevice(device: device), model: model, silent: true, allowPaging: false)
     }
 
     /// Logs a poll-skip reason once per change, keeping the 2s poll from

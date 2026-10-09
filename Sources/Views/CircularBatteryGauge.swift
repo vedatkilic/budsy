@@ -1,75 +1,92 @@
 import SwiftUI
 
-/// A battery gauge drawn as an open 270° dial rather than a closed ring: the
-/// gap at the bottom gives the sweep a start and an end, so "nearly full" and
-/// "full" read differently at a glance where two closed circles do not.
+/// A battery ring in the style of the macOS Batteries widget.
+///
+/// `.compact` puts an earbud/case glyph inside the ring with the percentage and
+/// label below it (menu-bar panel). `.large` puts the percentage inside the ring
+/// with the label below (settings window).
 struct CircularBatteryGauge: View {
+    enum Style { case compact, large }
+    enum Kind { case bud, budsCase }
+
     let level: Int
     let label: LocalizedStringKey
     var present: Bool = true
     var charging: Bool = false
-    var diameter: CGFloat = 74
-
-    /// Fraction of a full turn the dial sweeps — 0.75 leaves a 90° gap.
-    private static let sweep: CGFloat = 0.75
-    /// Puts the sweep's start at the lower left, centring the gap on the bottom.
-    private static let startAngle: Double = 135
+    var diameter: CGFloat = 60
+    var kind: Kind = .bud
+    var style: Style = .compact
 
     private var fraction: CGFloat { present ? CGFloat(max(0, min(100, level))) / 100 : 0 }
-
-    private var lineWidth: CGFloat { diameter * 0.085 }
+    private var lineWidth: CGFloat { max(4, diameter * 0.09) }
 
     private var color: Color {
         guard present else { return .secondary.opacity(0.4) }
         switch level {
         case 0..<15: return .red
         case 15..<30: return .orange
-        default: return .green
+        default: return .batteryGreen
         }
     }
+
+    private var percentText: String { present ? "\(level)%" : "—" }
 
     var body: some View {
-        ZStack {
-            arc(to: Self.sweep)
-                .stroke(Color.secondary.opacity(0.18),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            arc(to: Self.sweep * fraction)
-                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+        VStack(spacing: style == .compact ? 5 : 9) {
+            ZStack {
+                Circle()
+                    .stroke(Color.glassTrack, lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: color.opacity(0.35), radius: 4)
 
-            VStack(spacing: 0) {
-                Text(present ? "\(level)%" : "—")
-                    .font(.system(size: diameter * 0.215, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                switch style {
+                case .compact:
+                    Image(systemName: kind == .bud ? "earbuds" : "earbuds.case")
+                        .font(.system(size: diameter * 0.32, weight: .medium))
+                        .foregroundStyle(.secondary)
+                case .large:
+                    Text(percentText)
+                        .font(.system(size: diameter * 0.23, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, lineWidth)
+                }
+            }
+            .frame(width: diameter, height: diameter)
+            .overlay(alignment: .bottomTrailing) {
+                if present && charging {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: diameter * 0.16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: diameter * 0.34, height: diameter * 0.34)
+                        .background(Circle().fill(Color.batteryGreen))
+                        .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                        .offset(x: 2, y: 2)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+
+            VStack(spacing: 1) {
+                if style == .compact {
+                    Text(percentText)
+                        .font(.system(size: max(11, diameter * 0.26), weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
                 Text(label)
-                    .font(.system(size: diameter * 0.145))
+                    .font(.system(size: style == .compact ? 10 : 12, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            .frame(width: diameter * 0.7)
-            // Nudged up so the pair sits centred in the ink of the dial rather
-            // than in its bounding box, which the bottom gap skews.
-            .offset(y: -diameter * 0.06)
-
-            // The bolt lives in the gap at the bottom of the dial. Inline with
-            // the percentage it pushed "100%" wider than the arc it sits in.
-            if present && charging {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: diameter * 0.17))
-                    .foregroundStyle(.green)
-                    .offset(y: diameter * 0.33)
-            }
         }
-        .frame(width: diameter, height: diameter)
-        .animation(.easeOut(duration: 0.35), value: fraction)
-    }
-
-    /// A `Circle` trimmed to `end` of a turn and rotated so the sweep begins at
-    /// the lower left. `trim(to: 0)` draws nothing, which is what an absent
-    /// reading should look like.
-    private func arc(to end: CGFloat) -> some Shape {
-        Circle()
-            .trim(from: 0, to: end)
-            .rotation(.degrees(Self.startAngle))
+        .animation(.easeOut(duration: 0.8), value: fraction)
+        .animation(.glass, value: charging)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(Text(verbatim: percentText))
     }
 }

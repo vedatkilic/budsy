@@ -5,17 +5,21 @@ import SwiftUI
 struct FindMyEarbudsView: View {
     @Bindable var bluetooth: BluetoothManager
     let onBack: () -> Void
+    /// False when embedded in the settings window, which supplies its own title.
+    var showsHeader: Bool = true
 
     @State private var isRinging = false
     @State private var muteLeft = false
     @State private var muteRight = false
 
-    private var tint: Color { bluetooth.connectedModel?.tint ?? .blue }
+    private var tint: Color { Color.accentColor }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if showsHeader {
+                header
+                Divider()
+            }
             ScrollView {
                 VStack(spacing: 22) {
                     ringControl
@@ -24,7 +28,7 @@ struct FindMyEarbudsView: View {
                 .padding(18)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onDisappear { stopRinging() }
     }
 
@@ -81,7 +85,7 @@ struct FindMyEarbudsView: View {
                 muteRow("Right", isOn: $muteRight)
             }
             .padding(.horizontal, 12)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.glassCard))
         }
     }
 

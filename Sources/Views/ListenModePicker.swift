@@ -1,62 +1,58 @@
 import SwiftUI
 
-/// Listen-mode picker: circles strung along a rail, the way Galaxy Wearable
-/// draws it.
+/// Listen-mode picker drawn as a glass segmented control: a recessed track with
+/// a raised thumb that springs across to the chosen mode.
 ///
-/// Shared by the menu-bar panel and the dashboard. The two had grown separate
-/// copies that had already drifted — different circle sizes, different fills for
-/// the unselected state, and labels laid out two different ways — so the same
-/// control looked like two controls depending on where you opened it.
+/// Shared by the menu-bar panel and the settings window so both surfaces show
+/// the same control.
 struct ListenModePicker: View {
     let modes: [NoiseControlMode]
     let selection: NoiseControlMode
-    var tint: Color = .blue
-    var circleSize: CGFloat = 36
+    var tint: Color = .accentColor
+    var height: CGFloat = 54
     let onSelect: (NoiseControlMode) -> Void
 
+    @Namespace private var thumb
+
     var body: some View {
-        GeometryReader { geo in
-            let cell = geo.size.width / CGFloat(max(1, modes.count))
-            ZStack(alignment: .top) {
-                // The rail stops at the outer circles' centres rather than
-                // running the full width, so it reads as strung between them.
-                Capsule()
-                    .fill(Color.secondary.opacity(0.22))
-                    .frame(width: max(0, geo.size.width - cell), height: 2)
-                    .position(x: geo.size.width / 2, y: circleSize / 2)
-                HStack(spacing: 0) {
-                    ForEach(modes) { mode in
-                        button(mode).frame(width: cell)
-                    }
-                }
+        HStack(spacing: 0) {
+            ForEach(modes) { mode in
+                segment(mode)
             }
         }
-        .frame(height: circleSize + 32)
+        .padding(height < 50 ? 3 : 4)
+        .background(
+            RoundedRectangle(cornerRadius: height < 50 ? 12 : 14, style: .continuous).fill(Color.glassTrack)
+        )
+        .animation(.glass, value: selection)
     }
 
-    private func button(_ mode: NoiseControlMode) -> some View {
+    private func segment(_ mode: NoiseControlMode) -> some View {
         let selected = mode == selection
         return Button { onSelect(mode) } label: {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(selected ? tint : Color.secondary.opacity(0.14))
-                        .frame(width: circleSize, height: circleSize)
-                    Image(systemName: mode.iconName)
-                        .font(.system(size: circleSize * 0.42, weight: .medium))
-                        .foregroundStyle(selected ? Color.white : Color.secondary)
-                }
+            VStack(spacing: height < 50 ? 2 : 4) {
+                Image(systemName: mode.iconName)
+                    .font(.system(size: height * 0.32, weight: .medium))
+                    .symbolEffect(.bounce, value: selected)
                 Text(LocalizedStringKey(mode.shortName))
-                    .font(.system(size: 10, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? tint : .secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: height < 50 ? 10 : 11, weight: selected ? .semibold : .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .contentShape(Rectangle())
+            .foregroundStyle(selected ? Color.glassOnThumb : Color.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: height < 50 ? 9 : 11, style: .continuous)
+                        .fill(Color.glassThumb)
+                        .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
+                        .matchedGeometryEffect(id: "thumb", in: thumb)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(LocalizedStringKey(mode.shortName)))
+        .buttonStyle(.pressable)
+        .accessibilityLabel(Text(LocalizedStringKey(mode.displayName)))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }

@@ -9,9 +9,12 @@ import SwiftUI
 final class StatusBarController {
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var toast: NSPanel?
+    private var toastDismiss: DispatchWorkItem?
     private var detailWindow: NSWindow?
     private var outsideClickMonitor: Any?
     private let bluetooth: BluetoothManager
+    private let navigation = DetailNavigation()
 
     init(bluetooth: BluetoothManager) {
         self.bluetooth = bluetooth
@@ -91,21 +94,11 @@ final class StatusBarController {
     // MARK: - Quick panel
 
     private func makePanel() -> NSPanel {
-        let hosting = NSHostingController(
-            rootView: MenuPopoverView(bluetooth: bluetooth) { [weak self] in
-                self?.openDetailWindow()
-            }
-        )
-        let panel = NSPanel(
-            contentViewController: hosting
-        )
-        panel.styleMask = [.borderless, .nonactivatingPanel]
-        panel.isFloatingPanel = true
-        panel.level = .popUpMenu
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
+        let panel = Self.makeGlassPanel(
+            MenuPopoverView(bluetooth: bluetooth) { [weak self] section in
+                self?.openDetailWindow(section: section)
+            },
+            cornerRadius: 30)
         // Movable as a safety net: the panel normally drops straight under the
         // menu-bar icon, but when the icon isn't where it should be the panel
         // has to stay reachable rather than stranded.
@@ -113,9 +106,51 @@ final class StatusBarController {
         return panel
     }
 
+    /// A borderless floating panel whose content view IS the glass: a masked,
+    /// behind-window `NSVisualEffectView` with the SwiftUI view on top. Because
+    /// the window's only opaque pixels are the rounded glass, its shadow and
+    /// blur follow the rounded shape instead of the window's rectangle.
+    private static func makeGlassPanel<Content: View>(_ root: Content, cornerRadius: CGFloat) -> NSPanel {
+        let hosting = NSHostingView(rootView: root)
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        let size = hosting.fittingSize
+
+        let glass = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        glass.material = .hudWindow
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.maskImage = VisualEffectBackground.mask(radius: cornerRadius)
+        glass.wantsLayer = true
+        glass.layer?.cornerRadius = cornerRadius
+        glass.layer?.cornerCurve = .continuous
+        glass.layer?.masksToBounds = true
+        glass.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: glass.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+        ])
+
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false)
+        panel.contentView = glass
+        panel.isFloatingPanel = true
+        panel.level = .popUpMenu
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        return panel
+    }
+
     /// Shown on launch / reopen so the user can find the app even if the
     /// menu-bar icon is hard to spot.
     func showPanel() {
+        hideToast(animated: false)
         guard panel?.isVisible != true else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -145,7 +180,7 @@ final class StatusBarController {
 
         var origin: NSPoint
         if let anchor = statusItemAnchor() {
-            origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - size.height - 4)
+            origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.minY - size.height - 6)
         } else {
             // No usable status button — fall back to top-centre of the screen.
             origin = NSPoint(x: frame.midX - size.width / 2, y: frame.maxY - size.height - 8)
@@ -153,6 +188,9 @@ final class StatusBarController {
         origin.x = min(max(frame.minX + 8, origin.x), frame.maxX - size.width - 8)
         origin.y = min(max(frame.minY + 8, origin.y), frame.maxY - size.height - 8)
         panel.setFrameOrigin(origin)
+        // Recompute the shadow from the rounded glass once it has drawn.
+        panel.invalidateShadow()
+        DispatchQueue.main.async { panel.invalidateShadow() }
     }
 
     /// The status button's rect on screen, but only when it is genuinely sitting
@@ -172,6 +210,55 @@ final class StatusBarController {
               rect.minY >= screen.frame.maxY - 40
         else { return nil }
         return rect
+    }
+
+    // MARK: - Connect toast
+
+    /// The compact AirPods-style "Connected" card shown when the buds connect.
+    /// Fades in under the menu-bar icon and dismisses itself.
+    func showConnectToast() {
+        guard panel?.isVisible != true else { return }
+        let toast = toast ?? makeToast()
+        self.toast = toast
+        positionPanel(toast)
+
+        toastDismiss?.cancel()
+        if !toast.isVisible {
+            toast.alphaValue = 0
+            toast.orderFront(nil)
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            toast.animator().alphaValue = 1
+        }
+
+        let dismiss = DispatchWorkItem { [weak self] in self?.hideToast(animated: true) }
+        toastDismiss = dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: dismiss)
+    }
+
+    private func makeToast() -> NSPanel {
+        Self.makeGlassPanel(
+            ConnectToastView(bluetooth: bluetooth) { [weak self] in
+                self?.showPanel()
+            },
+            cornerRadius: 32)
+    }
+
+    private func hideToast(animated: Bool) {
+        toastDismiss?.cancel()
+        toastDismiss = nil
+        guard let toast, toast.isVisible else { return }
+        guard animated else {
+            toast.orderOut(nil)
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.35
+            toast.animator().alphaValue = 0
+        }, completionHandler: {
+            MainActor.assumeIsolated { toast.orderOut(nil) }
+        })
     }
 
     private func closePanel() {
@@ -197,20 +284,29 @@ final class StatusBarController {
 
     // MARK: - Detail window
 
-    func openDetailWindow() {
+    func openDetailWindow(section: DashboardSection? = nil) {
         closePanel()
+        if let section { navigation.section = section }
         if detailWindow == nil {
-            let root = PopoverView(bluetooth: bluetooth)
-                .frame(width: 440, height: 600)
-                .background(Color(nsColor: .windowBackgroundColor))
+            let size = NSSize(width: 900, height: 640)
+            let root = PopoverView(bluetooth: bluetooth, navigation: navigation)
+                .frame(width: size.width, height: size.height)
             let hosting = NSHostingController(rootView: root)
             hosting.sizingOptions = []
+            // The SwiftUI layout fills the whole window, title bar included —
+            // otherwise the title-bar inset pushes the bottom edge off-window.
+            hosting.safeAreaRegions = []
             let win = NSWindow(contentViewController: hosting)
             win.title = "Galaxy Buds"
-            win.styleMask = [.titled, .closable, .miniaturizable]
+            // Full-size content under a transparent title bar, so the vibrant
+            // sidebar runs to the top edge with the traffic lights over it.
+            win.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+            win.titlebarAppearsTransparent = true
+            win.titleVisibility = .hidden
+            win.isOpaque = false
+            win.backgroundColor = .clear
             win.isReleasedWhenClosed = false
-            win.backgroundColor = .windowBackgroundColor
-            win.setContentSize(NSSize(width: 440, height: 600))
+            win.setContentSize(size)
             win.center()
             detailWindow = win
         }

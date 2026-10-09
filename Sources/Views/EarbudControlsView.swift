@@ -7,14 +7,18 @@ import SwiftUI
 struct EarbudControlsView: View {
     @Bindable var bluetooth: BluetoothManager
     let onBack: () -> Void
+    /// False when embedded in the settings window, which supplies its own title.
+    var showsHeader: Bool = true
 
     private var status: BudsStatus { bluetooth.status }
-    private var tint: Color { bluetooth.connectedModel?.tint ?? .blue }
+    private var tint: Color { Color.accentColor }
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if showsHeader {
+                header
+                Divider()
+            }
             ScrollView {
                 VStack(spacing: 18) {
                     holdSection
@@ -23,7 +27,7 @@ struct EarbudControlsView: View {
                 .padding(18)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
@@ -129,7 +133,7 @@ struct EarbudControlsView: View {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
             VStack(spacing: 0) { content() }
                 .padding(.horizontal, 12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.glassCard))
         }
     }
 

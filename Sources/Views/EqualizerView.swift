@@ -7,9 +7,11 @@ import SwiftUI
 struct EqualizerView: View {
     @Bindable var bluetooth: BluetoothManager
     let onBack: () -> Void
+    /// False when embedded in the settings window, which supplies its own title.
+    var showsHeader: Bool = true
 
     private var status: BudsStatus { bluetooth.status }
-    private var tint: Color { bluetooth.connectedModel?.tint ?? .blue }
+    private var tint: Color { Color.accentColor }
 
     private let frequencies = ["63", "125", "250", "500", "1k",
                                "2k", "4k", "8k", "16k"]
@@ -38,8 +40,10 @@ struct EqualizerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if showsHeader {
+                header
+                Divider()
+            }
             ScrollView {
                 VStack(spacing: 18) {
                     presetSection
@@ -48,7 +52,7 @@ struct EqualizerView: View {
                 .padding(18)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var header: some View {
@@ -125,7 +129,7 @@ struct EqualizerView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 12)
-            .fill(Color(nsColor: .controlBackgroundColor)))
+            .fill(Color.glassCard))
     }
 
     /// A single vertical bar. The fill height encodes the band gain, clamped to
@@ -221,7 +225,7 @@ struct EqualizerView: View {
                 .padding(.horizontal, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .fill(Color.glassCard)
                 )
         }
     }

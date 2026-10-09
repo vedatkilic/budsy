@@ -9,6 +9,8 @@ import SwiftUI
 struct FirmwareUpdateView: View {
     @Bindable var bluetooth: BluetoothManager
     let onBack: () -> Void
+    /// False when embedded in the settings window, which supplies its own title.
+    var showsHeader: Bool = true
 
     /// Samsung's own updater refuses below half charge, and a bud that dies
     /// mid-flash is the way these get bricked.
@@ -36,7 +38,7 @@ struct FirmwareUpdateView: View {
     @State private var confirming: FirmwareRelease?
 
     private var status: BudsStatus { bluetooth.status }
-    private var tint: Color { bluetooth.connectedModel?.tint ?? .blue }
+    private var tint: Color { Color.accentColor }
     private var updater: FirmwareUpdater { bluetooth.firmware }
 
     private var batteryTooLow: Bool {
@@ -45,8 +47,10 @@ struct FirmwareUpdateView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if showsHeader {
+                header
+                Divider()
+            }
             ScrollView {
                 VStack(spacing: 18) {
                     installedSection
@@ -59,7 +63,7 @@ struct FirmwareUpdateView: View {
                 .padding(18)
             }
         }
-        .frame(width: 440, height: 560)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .confirmationDialog(
             "Install this firmware?",
             isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
@@ -297,7 +301,7 @@ struct FirmwareUpdateView: View {
             Text(title).font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 4)
             VStack(spacing: 0) { content() }
                 .padding(.horizontal, 12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.glassCard))
         }
     }
 
