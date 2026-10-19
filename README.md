@@ -36,6 +36,9 @@ gestures, find-my-earbuds, and more — without leaving your menu bar.
   and a copyable connection log for bug reports. The app also logs to the
   unified log under the `com.nivorbit.budsy` subsystem (Console.app).
 - **Auto-connect** when the buds connect, and **Launch at login**.
+- **Stays alongside your phone** — the buds keep your Galaxy phone connected
+  while they're connected to the Mac, and playing on the phone takes the audio
+  over from the Mac (Buds2 and newer; verified on Buds4 Pro).
 - **Localized** in 11 languages — follows your Mac's language.
 
 Supports Galaxy Buds through Buds4 Pro.

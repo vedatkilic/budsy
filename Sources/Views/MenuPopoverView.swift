@@ -17,8 +17,12 @@ struct MenuPopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             if bluetooth.isConnected {
                 connected
+            } else if bluetooth.isReclaiming {
+                reclaiming
             } else if bluetooth.handedOffToPhone {
-                handedOff
+                elsewhere(icon: "iphone.radiowaves.left.and.right", subtitle: "Audio on phone")
+            } else if bluetooth.yieldedToOtherDevice {
+                elsewhere(icon: "arrow.left.arrow.right", subtitle: "Switched to another device")
             } else {
                 disconnected
             }
@@ -141,18 +145,19 @@ struct MenuPopoverView: View {
 
     // MARK: - Other states
 
-    /// Shown while the buds are intentionally handed off to the phone: audio
-    /// + control are both down, and auto-reconnect is suppressed.
-    private var handedOff: some View {
+    /// Shown while the buds are with another host, either handed off to the
+    /// phone on purpose or switched away by the buds themselves: audio +
+    /// control are both down, and auto-reconnect is suppressed.
+    private func elsewhere(icon: String, subtitle: LocalizedStringKey) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: "iphone.radiowaves.left.and.right")
+            Image(systemName: icon)
                 .font(.system(size: 32))
                 .foregroundStyle(tint)
             VStack(spacing: 3) {
                 Text(verbatim: bluetooth.connectedName
                      ?? bluetooth.connectedModel?.rawValue ?? "Galaxy Buds")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Audio on phone")
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -170,6 +175,22 @@ struct MenuPopoverView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    /// Shown after "Connect on Mac" while the buds come back, in place of the
+    /// disconnected screen the panel would otherwise fall to meanwhile.
+    private var reclaiming: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Connecting to \(bluetooth.connectedName ?? bluetooth.connectedModel?.rawValue ?? "Galaxy Buds")...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 24)
     }
 
     private var disconnected: some View {

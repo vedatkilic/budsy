@@ -165,6 +165,19 @@ enum BudsModel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Whether the model exposes the SMEP channel that `MultipointUnlocker`
+    /// uses to keep the phone connected alongside the Mac. Verified on Buds4
+    /// Pro; the other models follow GalaxyBudsClient's list, and any that turn
+    /// out not to publish the service are skipped at connect time.
+    var supportsMultipointUnlock: Bool {
+        switch self {
+        case .buds2, .buds2Pro, .budsFe, .budsCore, .buds3, .buds3Pro, .buds3Fe, .buds4, .buds4Pro:
+            return true
+        case .buds, .budsPlus, .budsLive, .budsPro:
+            return false
+        }
+    }
+
     /// Whether the model supports the per-band custom equalizer (9 signed gain
     /// bands, -10..+10). Only the newest models expose the CUSTOM_EQUALIZE SPP
     /// messages; older models offer presets only.

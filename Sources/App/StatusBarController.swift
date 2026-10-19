@@ -18,6 +18,9 @@ final class StatusBarController {
 
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var pill: NSPanel?
+    private var pillDismissal: Task<Void, Never>?
+    private static let pillDuration: Duration = .seconds(4)
     private let panelState = PanelState()
     private var outsideClickMonitor: Any?
     private let bluetooth: BluetoothManager
@@ -138,6 +141,7 @@ final class StatusBarController {
     /// Shown on launch / reopen so the user can find the app even if the
     /// menu-bar icon is hard to spot.
     func showPanel() {
+        hidePill()
         guard panel?.isVisible != true else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -233,6 +237,48 @@ final class StatusBarController {
         }
     }
 
+    // MARK: - Switched pill
+
+    /// Briefly drops a pill under the icon saying the buds moved to another
+    /// host; clicking it opens the panel, which offers to take them back.
+    /// Skipped while the panel is open, since it already shows that state.
+    func showSwitchedPill() {
+        guard panel?.isVisible != true else { return }
+        let pill = pill ?? makePill()
+        self.pill = pill
+        pill.layoutIfNeeded()
+        pill.setContentSize(pill.contentView?.fittingSize ?? NSSize(width: 220, height: 30))
+        anchorPanel(pill)
+        pill.orderFrontRegardless()
+        pillDismissal?.cancel()
+        pillDismissal = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.pillDuration)
+            guard !Task.isCancelled else { return }
+            self?.hidePill()
+        }
+    }
+
+    private func makePill() -> NSPanel {
+        let hosting = NSHostingController(rootView: SwitchedPill { [weak self] in
+            self?.showPanel()
+        })
+        let pill = KeyablePanel(contentViewController: hosting)
+        pill.styleMask = [.borderless, .nonactivatingPanel]
+        pill.isFloatingPanel = true
+        pill.level = .popUpMenu
+        pill.backgroundColor = .clear
+        pill.isOpaque = false
+        pill.hasShadow = true
+        pill.hidesOnDeactivate = false
+        return pill
+    }
+
+    private func hidePill() {
+        pillDismissal?.cancel()
+        pillDismissal = nil
+        pill?.orderOut(nil)
+    }
+
     // MARK: - Detail view
 
     /// Expands the panel in place to the full dashboard. The content resizes
@@ -268,6 +314,22 @@ final class StatusBarController {
 /// their inactive state.
 private final class KeyablePanel: NSPanel {
     override var canBecomeKey: Bool { true }
+}
+
+/// The pill dropped under the icon when the buds switch to another host.
+private struct SwitchedPill: View {
+    let action: () -> Void
+
+    var body: some View {
+        Label("Switched to another device", systemImage: "arrow.left.arrow.right")
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: Capsule())
+            .contentShape(Capsule())
+            .onTapGesture(perform: action)
+            .fixedSize()
+    }
 }
 
 /// Root of the menu-bar panel: the compact quick view, or the full dashboard

@@ -79,6 +79,7 @@ struct AboutView: View {
             (\(bluetooth.connectedModel?.rawValue ?? "—"))
             Firmware: \(status.softwareVersion.isEmpty ? "—" : status.softwareVersion)
             Connected: \(bluetooth.isConnected)
+            Multipoint: \(bluetooth.multipoint.lastResult)
             """
         let report = DiagnosticsLog.shared.export(deviceSummary: summary)
         NSPasteboard.general.clearContents()

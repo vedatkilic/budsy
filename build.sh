@@ -28,6 +28,8 @@ swiftc -parse-as-library \
   Sources/Bluetooth/CRC16.swift \
   Sources/Bluetooth/MessageId.swift \
   Sources/Bluetooth/SppMessage.swift \
+  Sources/Bluetooth/SmepFrame.swift \
+  Sources/Bluetooth/MultipointUnlocker.swift \
   Sources/Bluetooth/BluetoothManager.swift \
   Sources/App/PreviewRenderer.swift \
   Sources/Views/BudsModelUI.swift \

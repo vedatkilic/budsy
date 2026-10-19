@@ -66,6 +66,37 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// requests it back. macOS exposes no API to drop only A2DP, so this is the
     /// only way to make the buds release the Mac's audio claim.
     var handedOffToPhone = false
+    /// While true, the buds dropped the Mac in favour of another host. With
+    /// two other hosts connected (phone + tablet, say) the buds keep only one
+    /// of the idle ones; Samsung hosts accept that and come back when needed,
+    /// whereas reconnecting straight away pushes the other host off and the
+    /// two trade the buds back and forth. So the poll stays off until macOS
+    /// connects the buds itself or the user asks for them back.
+    var yieldedToOtherDevice = false
+    /// Set by "Connect on Mac" until that connection succeeds or gives up.
+    private var reclaimRequested = false
+    /// Set while the control channel is reopened after the SMEP session, so
+    /// that reconnect doesn't start another one. The buds keep the value
+    /// written until they go back in the case.
+    private var skipNextMultipoint = false
+    /// The user asked for the buds back and the connection is under way, so
+    /// the panel can show progress instead of the disconnected screen.
+    /// Background auto-connect attempts don't count: they'd flash a spinner on
+    /// every poll while the buds are away.
+    var isReclaiming: Bool { reclaimRequested && (isConnecting || controlReopenPending) }
+    /// Between closing the control channel after the SMEP session and
+    /// opening it again.
+    private var controlReopenPending = false
+    /// When a bud last went into the case or had the lid close on it. With
+    /// one bud worn and the other in the case, closing the lid drops the Mac's
+    /// link for a moment though no other host took the buds, so a close this
+    /// soon after isn't treated as a switch to another device.
+    private var lastCaseChange: Date?
+    private let caseChangeGrace: TimeInterval = 5
+    /// The buds ignore an open of the control channel that comes right after
+    /// its close; the attempt then sat out its whole 10s timeout before the
+    /// retry got through. GalaxyBudsClient waits half a second at this point.
+    private let controlReopenDelay: Duration = .seconds(1)
     private var connectedDevice: IOBluetoothDevice?
     private var inquiry: IOBluetoothDeviceInquiry?
     private var centralManager: CBCentralManager?
@@ -89,20 +120,27 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// Invoked when an auto-connect (triggered by a device connecting) succeeds,
     /// so the UI can surface the panel — an AirPods-like pop-up on connect.
     var onAutoConnected: (@MainActor () -> Void)?
+    /// Invoked when the buds switch away to another host, so the UI can say so.
+    var onYieldedToOtherDevice: (@MainActor () -> Void)?
 
     /// Firmware transfers ride the same control channel, so the manager owns the
     /// updater and forwards the device's FOTA messages to it.
     let firmware = FirmwareUpdater()
 
+    /// Keeps the phone connected alongside the Mac; runs on every connect.
+    let multipoint = MultipointUnlocker()
+
     override init() {
         super.init()
         firmware.send = { [weak self] message in self?.sendMessage(message) }
         firmware.onFinished = { [weak self] _ in self?.handleFirmwareTransferEnded() }
+        multipoint.onSessionEnded = { [weak self] in self?.reopenControlChannel() }
     }
 
     /// The buds reboot into the new firmware on their own once the transfer
     /// ends, so drop the stale link and let auto-connect pick them back up.
     private func handleFirmwareTransferEnded() {
+        multipoint.cancel()
         rfcommChannel?.close()
         rfcommChannel = nil
         connectedDevice?.closeConnection()
@@ -145,10 +183,32 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         device: IOBluetoothDevice!
     ) {
         let name = device?.name ?? ""
+        let address = device?.addressString
         Task { @MainActor in
             guard self.isGalaxyBudsName(name), !self.isConnected else { return }
-            self.attemptAutoConnect(notify: true)
+            if self.yieldedToOtherDevice {
+                self.reconnectAfterYield(address: address, name: name)
+            } else {
+                self.attemptAutoConnect(notify: true)
+            }
         }
+    }
+
+    /// macOS connecting the buds itself (picked in the Sound menu, out of the
+    /// case) means the Mac is wanted again. Connects to that device directly:
+    /// `attemptAutoConnect` filters on `isConnected()`, which reports false for
+    /// these buds even while connected and would let the event go unanswered.
+    private func reconnectAfterYield(address: String?, name: String) {
+        guard !isConnecting, rfcommChannel == nil,
+              let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice],
+              let device = paired.first(where: { $0.addressString == address })
+        else { return }
+        DiagnosticsLog.shared.log("yield: macOS reconnected \(name), taking the buds back")
+        // The flag stays set until markConnected succeeds, so a failed attempt
+        // leaves the poll paused instead of restarting the tug-of-war.
+        autoConnectShouldNotify = true
+        let model = BudsModel.detect(from: name) ?? .buds4Pro
+        connect(to: DiscoveredDevice(device: device), model: model, silent: true)
     }
 
     /// Connects to the first already-connected, paired Galaxy Buds, if any.
@@ -422,6 +482,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     }
 
     func disconnect() {
+        multipoint.cancel()
         rfcommChannel?.close()
         rfcommChannel = nil
         connectedDevice?.closeConnection()
@@ -447,6 +508,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// has no API to drop just the A2DP profile while keeping SPP.
     func handOffToPhone() {
         handedOffToPhone = true
+        multipoint.cancel()
         rfcommChannel?.close()
         rfcommChannel = nil
         connectedDevice?.closeConnection()
@@ -455,10 +517,58 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         cancelAttemptTimeout()
     }
 
-    /// Reclaims the buds on the Mac: clears the hand-off and immediately
-    /// attempts to reconnect (control channel + audio).
+    /// The buds dropped the Mac for another host while multipoint was on. Stop
+    /// polling for them instead of taking them straight back; see
+    /// `yieldedToOtherDevice`.
+    private func yieldToOtherDevice() {
+        DiagnosticsLog.shared.log("yield: buds switched to another device, auto-reconnect paused")
+        yieldedToOtherDevice = true
+        onYieldedToOtherDevice?()
+    }
+
+    /// The SMEP session closed and took the control channel's traffic with it
+    /// (see `MultipointUnlocker.onSessionEnded`). Opens a fresh control
+    /// channel on the same link, showing the connecting state meanwhile.
+    private func reopenControlChannel() {
+        guard isConnected, let device = connectedDevice, let model = connectedModel else { return }
+        DiagnosticsLog.shared.log("multipoint: reopening the control channel")
+        skipNextMultipoint = true
+        reclaimRequested = true
+        // Cleared before the close, like every teardown the app starts, so
+        // the close isn't taken for the buds switching away.
+        isConnected = false
+        rfcommChannel?.close()
+        rfcommChannel = nil
+
+        // Hold the auto-connect poll off while waiting, so it doesn't open the
+        // channel too early itself.
+        controlReopenPending = true
+        lastAutoAttempt = Date()
+        let generation = connectGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: self?.controlReopenDelay ?? .seconds(1))
+            guard let self, self.controlReopenPending else { return }
+            self.controlReopenPending = false
+            // Disconnect, sleep or a hand-off in the meantime called it off.
+            guard self.connectGeneration == generation, self.connectedDevice === device,
+                  !self.isConnected, !self.isConnecting,
+                  !self.handedOffToPhone, !self.yieldedToOtherDevice
+            else {
+                self.skipNextMultipoint = false
+                self.reclaimRequested = false
+                return
+            }
+            self.connect(to: DiscoveredDevice(device: device), model: model, silent: true)
+        }
+    }
+
+    /// Reclaims the buds on the Mac: clears the hand-off (or the switch to
+    /// another host) and immediately attempts to reconnect (control channel +
+    /// audio).
     func reclaimFromPhone() {
         handedOffToPhone = false
+        yieldedToOtherDevice = false
+        reclaimRequested = true
         suppressAutoConnect = false
         lastAutoAttempt = nil
         pollAutoConnect()
@@ -472,6 +582,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         DiagnosticsLog.shared.log("system will sleep: closing control channel")
         connectGeneration &+= 1
         cancelAttemptTimeout()
+        multipoint.cancel()
         rfcommChannel?.close()
         rfcommChannel = nil
         isConnected = false
@@ -534,7 +645,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     func pollAutoConnect() {
         guard autoConnectArmed, bluetoothReady, !isConnected,
               rfcommChannel == nil, !isConnecting, !suppressAutoConnect,
-              !handedOffToPhone else {
+              !handedOffToPhone, !yieldedToOtherDevice else {
             notePollSkip(
                 !autoConnectArmed ? "auto-connect not armed"
                     : !bluetoothReady ? "Bluetooth not ready (permission or powered off)"
@@ -542,6 +653,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
                     : isConnecting ? "attempt in flight"
                     : suppressAutoConnect ? "suppressed after manual disconnect"
                     : handedOffToPhone ? "handed off to phone"
+                    : yieldedToOtherDevice ? "buds switched to another device"
                     : "channel still open")
             return
         }
@@ -863,6 +975,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         silentConnect = false
         preferFreshSDP = false
         isConnected = true
+        yieldedToOtherDevice = false
+        reclaimRequested = false
         // A silent attempt no longer clears the error up front, so clear it here
         // once one actually succeeds.
         connectionError = nil
@@ -880,9 +994,20 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         }
         // Force Seamless Connection on at connect: without multipoint enabled,
         // a paired phone claims the single bud link and the app can no longer
-        // reach the buds. The user controls audio via hand-off instead.
+        // reach the buds.
         if connectedModel?.supportsSeamlessConnection == true {
             setSeamlessConnection(true)
+        }
+        // Seamless Connection alone still lets the buds release the phone once
+        // the Mac's audio link comes up: they only keep a second host whose
+        // record says it's a Samsung device. Mark the Mac as one, so the phone
+        // stays connected and Samsung's auto switch works between them.
+        if skipNextMultipoint {
+            skipNextMultipoint = false
+        } else if connectedModel?.supportsMultipointUnlock == true,
+                  let device = connectedDevice,
+                  let controlChannelId = rfcommChannel?.getID() {
+            multipoint.apply(to: device, controlChannelId: controlChannelId)
         }
         if autoConnectShouldNotify {
             autoConnectShouldNotify = false
@@ -895,6 +1020,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     private func failConnect(_ message: String) {
         cancelAttemptTimeout()
         isConnecting = false
+        reclaimRequested = false
+        skipNextMultipoint = false
         rfcommChannel?.close()
         rfcommChannel = nil
         let silent = silentConnect
@@ -1161,8 +1288,16 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// periodic status push and the extended status, which carry the same byte
     /// at different offsets.
     private func applyPlacement(_ byte: UInt8) {
+        let previous = (status.placementLeft, status.placementRight)
         status.placementLeft = BudsStatus.Placement(rawValue: Int(byte >> 4)) ?? .unknown
         status.placementRight = BudsStatus.Placement(rawValue: Int(byte & 0x0F)) ?? .unknown
+        if (status.placementLeft, status.placementRight) != previous {
+            DiagnosticsLog.shared.log("placement: left \(status.placementLeft), right \(status.placementRight)")
+            if (status.placementLeft.isInCase && status.placementLeft != previous.0)
+                || (status.placementRight.isInCase && status.placementRight != previous.1) {
+                lastCaseChange = Date()
+            }
+        }
         status.isLeftWearing = status.placementLeft == .wearing
         status.isRightWearing = status.placementRight == .wearing
         status.isLeftCharging = status.placementLeft.isInCase
@@ -1379,11 +1514,24 @@ extension BluetoothManager: IOBluetoothRFCOMMChannelDelegate {
 
     nonisolated func rfcommChannelClosed(_ rfcommChannel: IOBluetoothRFCOMMChannel!) {
         DiagnosticsLog.shared.log("rfcomm channel closed")
+        let closed = rfcommChannel.map(ObjectIdentifier.init)
         Task { @MainActor in
+            // A channel that was already replaced (the control channel reopened
+            // after the SMEP session, say) must not tear down its successor.
+            if let current = self.rfcommChannel, ObjectIdentifier(current) != closed { return }
+            // Teardowns the app starts itself clear isConnected first, so a
+            // close that finds it still set came from the buds.
+            let caseJustChanged = self.lastCaseChange.map {
+                Date().timeIntervalSince($0) < self.caseChangeGrace
+            } ?? false
+            let switchedAway = self.isConnected && self.multipoint.isVerified
+                && !self.status.isPutAway && !caseJustChanged
+            self.multipoint.cancel()
             self.isConnected = false
             self.rfcommChannel = nil
             self.preferFreshSDP = true
             self.firmware.connectionLost()
+            if switchedAway { self.yieldToOtherDevice() }
         }
     }
 }

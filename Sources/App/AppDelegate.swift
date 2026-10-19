@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pop the panel up when the buds connect while we're running — an
         // AirPods-like appearance.
         bluetooth.onAutoConnected = { [weak controller] in controller?.showPanel() }
+        bluetooth.onYieldedToOtherDevice = { [weak controller] in controller?.showSwitchedPill() }
         // Prime permission and auto-connect to an already-connected Galaxy Buds.
         bluetooth.startAutoConnect()
         // Defer the launch panel so the status item is laid out first; otherwise

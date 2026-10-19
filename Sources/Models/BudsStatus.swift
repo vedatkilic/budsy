@@ -18,6 +18,15 @@ final class BudsStatus: @unchecked Sendable {
     var placementLeft: Placement = .unknown
     var placementRight: Placement = .unknown
 
+    /// Both buds back in the case. The first bud into the case drops off the
+    /// pair and the other reports its side as `.unknown` from then on, so the
+    /// last push before the case closes reads "in case" for one side and
+    /// "unknown" for the other; that counts as put away too.
+    var isPutAway: Bool {
+        let sides = [placementLeft, placementRight]
+        return sides.contains { $0.isInCase } && sides.allSatisfy { $0.isInCase || $0 == .unknown }
+    }
+
     var isCoupled: Bool = false
     var mainConnection: MainConnection = .right
 
