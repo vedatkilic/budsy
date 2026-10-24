@@ -35,6 +35,7 @@ swiftc -parse-as-library \
   Sources/Views/AncStrengthStepper.swift \
   Sources/Views/ListenModePicker.swift \
   Sources/Views/MenuPopoverView.swift \
+  Sources/Views/ConnectToastView.swift \
   Sources/Views/WizardView.swift \
   Sources/Views/DashboardView.swift \
   Sources/Views/SoundAncView.swift \

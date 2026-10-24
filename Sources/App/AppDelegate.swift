@@ -48,9 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         let controller = StatusBarController(bluetooth: bluetooth)
         statusBarController = controller
-        // Pop the panel up when the buds connect while we're running — an
-        // AirPods-like appearance.
-        bluetooth.onAutoConnected = { [weak controller] in controller?.showPanel() }
+        // When the buds connect while we're running, drop in a small
+        // AirPods-style "Connected" card rather than the whole panel; clicking
+        // it (or the menu-bar icon) opens the panel.
+        bluetooth.onAutoConnected = { [weak controller] in controller?.showConnectToast() }
         // Prime permission and auto-connect to an already-connected Galaxy Buds.
         bluetooth.startAutoConnect()
         // Defer the launch panel so the status item is laid out first; otherwise

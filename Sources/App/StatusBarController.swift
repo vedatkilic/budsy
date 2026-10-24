@@ -18,6 +18,8 @@ final class StatusBarController {
 
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var toast: NSPanel?
+    private var toastDismiss: DispatchWorkItem?
     private let panelState = PanelState()
     private var outsideClickMonitor: Any?
     private let bluetooth: BluetoothManager
@@ -138,6 +140,7 @@ final class StatusBarController {
     /// Shown on launch / reopen so the user can find the app even if the
     /// menu-bar icon is hard to spot.
     func showPanel() {
+        hideToast(animated: false)
         guard panel?.isVisible != true else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -208,6 +211,73 @@ final class StatusBarController {
               rect.minY >= screen.frame.maxY - 40
         else { return nil }
         return rect
+    }
+
+    // MARK: - Connect toast
+
+    /// How long the connect card stays up before fading out.
+    private static let toastDuration: TimeInterval = 4
+
+    /// Shows the compact "Connected" card under the icon — what the buds
+    /// connecting brings up, instead of the whole panel. Skipped while the
+    /// panel is already open, since it shows the same thing.
+    func showConnectToast() {
+        guard panel?.isVisible != true else { return }
+        let toast = toast ?? makeToast()
+        self.toast = toast
+        positionPanel(toast)
+        if !toast.isVisible {
+            toast.alphaValue = 0
+            toast.orderFront(nil)
+            // The shadow is taken from what the window has drawn; recompute it
+            // once the rounded card is on screen, or it traces the full
+            // rectangle of the clear window.
+            DispatchQueue.main.async { toast.invalidateShadow() }
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            toast.animator().alphaValue = 1
+        }
+        toastDismiss?.cancel()
+        let dismiss = DispatchWorkItem { [weak self] in self?.hideToast(animated: true) }
+        toastDismiss = dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.toastDuration, execute: dismiss)
+        DiagnosticsLog.shared.log("toast: shown")
+    }
+
+    private func makeToast() -> NSPanel {
+        let hosting = NSHostingController(
+            rootView: ConnectToastView(bluetooth: bluetooth) { [weak self] in
+                self?.showPanel()
+            }
+        )
+        // A plain panel rather than `KeyablePanel`: the card never takes key
+        // focus away from whatever the user is typing in.
+        let toast = NSPanel(contentViewController: hosting)
+        toast.styleMask = [.borderless, .nonactivatingPanel]
+        toast.isFloatingPanel = true
+        toast.level = .popUpMenu
+        toast.backgroundColor = .clear
+        toast.isOpaque = false
+        toast.hasShadow = true
+        toast.hidesOnDeactivate = false
+        return toast
+    }
+
+    private func hideToast(animated: Bool) {
+        toastDismiss?.cancel()
+        toastDismiss = nil
+        guard let toast, toast.isVisible else { return }
+        guard animated else {
+            toast.orderOut(nil)
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            toast.animator().alphaValue = 0
+        }, completionHandler: {
+            MainActor.assumeIsolated { toast.orderOut(nil) }
+        })
     }
 
     private func closePanel() {
