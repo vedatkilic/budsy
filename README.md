@@ -7,7 +7,7 @@ gestures, find-my-earbuds, and more — without leaving your menu bar.
 > Budsy was previously called "Galaxy Buds for Mac" — same app, new name.
 
 <p align="center">
-  <img src="docs/screenshots/demo.gif" width="520" alt="Budsy demo">
+  <img src="docs/screenshots/demo.gif" width="520" alt="A tour of the Budsy panel: quick view, settings, Sound & ANC, earbud controls, equalizer">
 </p>
 
 > Unofficial. Not affiliated with or endorsed by Samsung. "Galaxy Buds" is a
@@ -17,9 +17,11 @@ gestures, find-my-earbuds, and more — without leaving your menu bar.
 
 | Menu bar quick panel | Settings |
 |:---:|:---:|
-| <img src="docs/screenshots/menu.png" width="360"> | <img src="docs/screenshots/dashboard.png" width="360"> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menu-dark.png"><img src="docs/screenshots/menu.png" width="360" alt="The quick panel under the menu-bar icon"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/dashboard-dark.png"><img src="docs/screenshots/dashboard.png" width="360" alt="The Settings page"></picture> |
 | **Sound & ANC** | **Earbud controls** |
-| <img src="docs/screenshots/sound-anc.png" width="360"> | <img src="docs/screenshots/earbud-controls.png" width="360"> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/sound-anc-dark.png"><img src="docs/screenshots/sound-anc.png" width="360" alt="Sound & ANC settings"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/earbud-controls-dark.png"><img src="docs/screenshots/earbud-controls.png" width="360" alt="Earbud control settings"></picture> |
+| **Equalizer** | |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/equalizer-dark.png"><img src="docs/screenshots/equalizer.png" width="360" alt="The equalizer"></picture> | |
 
 ## Features
 
