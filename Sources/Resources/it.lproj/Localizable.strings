@@ -163,3 +163,11 @@
 "On" = "Attivo";
 "Noise Cancelling" = "Cancellazione del rumore";
 "Ambient Sound" = "Suono ambientale";
+
+// Menu bar options
+"Menu bar shows" = "La barra dei menu mostra";
+"Icon only" = "Solo icona";
+"Lowest battery" = "Batteria più bassa";
+"Both earbuds" = "Entrambi gli auricolari";
+"Earbuds and case" = "Auricolari e custodia";
+"Hide icon while disconnected" = "Nascondi l’icona se disconnesso";

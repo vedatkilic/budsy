@@ -163,3 +163,11 @@
 "On" = "Вкл.";
 "Noise Cancelling" = "Шумоподавление";
 "Ambient Sound" = "Окружающие звуки";
+
+// Menu bar options
+"Menu bar shows" = "В строке меню";
+"Icon only" = "Только значок";
+"Lowest battery" = "Наименьший заряд";
+"Both earbuds" = "Оба наушника";
+"Earbuds and case" = "Наушники и кейс";
+"Hide icon while disconnected" = "Скрывать значок без подключения";

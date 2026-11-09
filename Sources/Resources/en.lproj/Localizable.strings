@@ -163,3 +163,11 @@
 "On" = "On";
 "Noise Cancelling" = "Noise Cancelling";
 "Ambient Sound" = "Ambient Sound";
+
+// Menu bar options
+"Menu bar shows" = "Menu bar shows";
+"Icon only" = "Icon only";
+"Lowest battery" = "Lowest battery";
+"Both earbuds" = "Both earbuds";
+"Earbuds and case" = "Earbuds and case";
+"Hide icon while disconnected" = "Hide icon while disconnected";

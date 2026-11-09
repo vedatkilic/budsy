@@ -163,3 +163,11 @@
 "On" = "Ein";
 "Noise Cancelling" = "Geräuschunterdrückung";
 "Ambient Sound" = "Umgebungsgeräusche";
+
+// Menu bar options
+"Menu bar shows" = "Menüleiste zeigt";
+"Icon only" = "Nur Symbol";
+"Lowest battery" = "Niedrigster Akkustand";
+"Both earbuds" = "Beide Ohrhörer";
+"Earbuds and case" = "Ohrhörer und Case";
+"Hide icon while disconnected" = "Symbol ausblenden, wenn getrennt";

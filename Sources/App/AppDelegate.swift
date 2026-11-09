@@ -113,8 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.bluetooth.pollAutoConnect()
                 self.statusBarController?.updateIcon(
                     connected: self.bluetooth.isConnected,
-                    batteryLeft: self.bluetooth.status.batteryLeft,
-                    batteryRight: self.bluetooth.status.batteryRight
+                    status: self.bluetooth.status
                 )
             }
         }

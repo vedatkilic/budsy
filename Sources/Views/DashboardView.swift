@@ -16,6 +16,8 @@ struct DashboardView: View {
     @State private var showAbout = false
     @State private var showFirmware = false
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var menuBarDisplay = MenuBarPreferences.display
+    @State private var hidesWhenDisconnected = MenuBarPreferences.hidesWhenDisconnected
 
     private var status: BudsStatus { bluetooth.status }
     private var tint: Color { .accentColor }
@@ -168,6 +170,32 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var appRows: some View {
+        row("Menu bar shows", icon: "menubar.rectangle", color: .gray) {
+            Menu {
+                ForEach(MenuBarDisplay.allCases) { option in
+                    Button {
+                        menuBarDisplay = option
+                        MenuBarPreferences.display = option
+                    } label: {
+                        Text(LocalizedStringKey(option.title))
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(LocalizedStringKey(menuBarDisplay.title))
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10))
+                }
+                .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        }
+        row("Hide icon while disconnected", icon: "eye.slash", color: .gray) {
+            Toggle("", isOn: Binding(
+                get: { hidesWhenDisconnected },
+                set: { hidesWhenDisconnected = $0; MenuBarPreferences.hidesWhenDisconnected = $0 }
+            ))
+            .labelsHidden().toggleStyle(.switch).controlSize(.small)
+        }
         row("Launch at login", icon: "power", color: .gray) {
             Toggle("", isOn: Binding(
                 get: { launchAtLogin },

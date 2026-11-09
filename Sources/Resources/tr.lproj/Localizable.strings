@@ -163,3 +163,11 @@
 "On" = "Açık";
 "Noise Cancelling" = "Gürültü Engelleme";
 "Ambient Sound" = "Ortam Sesi";
+
+// Menu bar options
+"Menu bar shows" = "Menü çubuğunda göster";
+"Icon only" = "Yalnızca simge";
+"Lowest battery" = "En düşük pil";
+"Both earbuds" = "İki kulaklık";
+"Earbuds and case" = "Kulaklıklar ve kutu";
+"Hide icon while disconnected" = "Bağlı değilken simgeyi gizle";

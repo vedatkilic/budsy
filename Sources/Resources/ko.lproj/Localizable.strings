@@ -163,3 +163,11 @@
 "On" = "켬";
 "Noise Cancelling" = "노이즈 캔슬링";
 "Ambient Sound" = "주변 소리";
+
+// Menu bar options
+"Menu bar shows" = "메뉴 막대 표시";
+"Icon only" = "아이콘만";
+"Lowest battery" = "가장 낮은 배터리";
+"Both earbuds" = "양쪽 이어버드";
+"Earbuds and case" = "이어버드와 케이스";
+"Hide icon while disconnected" = "연결 해제 시 아이콘 숨기기";

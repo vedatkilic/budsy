@@ -21,10 +21,19 @@ final class StatusBarController {
     private let panelState = PanelState()
     private var outsideClickMonitor: Any?
     private let bluetooth: BluetoothManager
+    private let launchDate = Date()
+    private var lastConnected = false
+    private var lastStatus = BudsStatus()
 
     init(bluetooth: BluetoothManager) {
         self.bluetooth = bluetooth
         setupStatusItem()
+        // Settings changes show at once rather than on the next poll.
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStatusItem() }
+        }
     }
 
     private static let autosaveName = "GalaxyBudsStatusItem"
@@ -60,6 +69,12 @@ final class StatusBarController {
     /// Removes the persisted visibility flags an earlier `.removalAllowed`
     /// build could leave set to 0. Position autosave lives under separate keys
     /// and is untouched.
+    ///
+    /// This is also why the opt-in "hide while disconnected" setting is safe:
+    /// it hides the item only at runtime and this reset restores it on every
+    /// launch, and an app relaunched from Spotlight or Launchpad still shows
+    /// the panel via `applicationShouldHandleReopen`, positioned top-centre
+    /// when the item isn't in the menu bar.
     private func clearRememberedHiddenState() {
         let defaults = UserDefaults.standard
         for key in ["NSStatusItem Visible \(Self.autosaveName)",
@@ -249,16 +264,50 @@ final class StatusBarController {
         panelState.showsDetail = true
     }
 
-    func updateIcon(connected: Bool, batteryLeft: Int, batteryRight: Int) {
-        guard let button = statusItem?.button else { return }
-        let battery = connected ? "\(min(batteryLeft, batteryRight))%" : ""
+    /// Remembers the latest connection state and applies it. The values are
+    /// kept so a changed menu-bar setting can be re-applied at once instead of
+    /// waiting for the next poll.
+    func updateIcon(connected: Bool, status: BudsStatus) {
+        lastConnected = connected
+        lastStatus = status
+        refreshStatusItem()
+    }
+
+    private func refreshStatusItem() {
+        guard let item = statusItem, let button = item.button else { return }
+
+        // Never hide while the panel is up (the user would lose its anchor) or
+        // during the first seconds after launch (the launch panel anchors
+        // under the icon).
+        let launching = Date().timeIntervalSince(launchDate) < 3
+        let hide = MenuBarPreferences.hidesWhenDisconnected && !lastConnected
+            && panel?.isVisible != true && !launching
+        if item.isVisible == hide { item.isVisible = !hide }
+
+        let text = lastConnected ? batteryText(for: lastStatus) : ""
         if button.image != nil {
             // The SF Symbol is always visible; show battery beside it when connected.
-            button.title = battery.isEmpty ? "" : " \(battery)"
+            button.title = text.isEmpty ? "" : " \(text)"
         } else {
             // No symbol available on this OS — keep a text label at all times so the
             // variable-length item never collapses to zero width and vanishes.
-            button.title = battery.isEmpty ? "Buds" : "Buds \(battery)"
+            button.title = text.isEmpty ? "Buds" : "Buds \(text)"
+        }
+    }
+
+    private func batteryText(for status: BudsStatus) -> String {
+        let buds = [status.batteryLeft, status.batteryRight].filter { $0 > 0 }
+        switch MenuBarPreferences.display {
+        case .iconOnly:
+            return ""
+        case .lowest:
+            return buds.min().map { "\($0)%" } ?? ""
+        case .both, .withCase:
+            var parts = buds.map { "\($0)%" }
+            if MenuBarPreferences.display == .withCase, status.batteryCase > 0 {
+                parts.append("\(status.batteryCase)%")
+            }
+            return parts.joined(separator: " · ")
         }
     }
 

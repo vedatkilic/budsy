@@ -45,6 +45,7 @@ swiftc -parse-as-library \
   Sources/Views/FirmwareUpdateView.swift \
   Sources/Views/PopoverView.swift \
   Sources/App/LaunchAtLogin.swift \
+  Sources/App/MenuBarPreferences.swift \
   Sources/App/StatusBarController.swift \
   Sources/App/AppDelegate.swift \
   Sources/App/BudsApp.swift \

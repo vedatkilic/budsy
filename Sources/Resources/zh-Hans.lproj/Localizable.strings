@@ -163,3 +163,11 @@
 "On" = "开";
 "Noise Cancelling" = "降噪";
 "Ambient Sound" = "环境音";
+
+// Menu bar options
+"Menu bar shows" = "菜单栏显示";
+"Icon only" = "仅图标";
+"Lowest battery" = "最低电量";
+"Both earbuds" = "两只耳机";
+"Earbuds and case" = "耳机和充电盒";
+"Hide icon while disconnected" = "未连接时隐藏图标";
