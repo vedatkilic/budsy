@@ -222,7 +222,13 @@ final class StatusBarController {
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
         ) { [weak self] _ in
-            self?.closePanel()
+            guard let self else { return }
+            // A click on our own icon reaches this monitor too, before the
+            // button's action. Closing here let that action reopen the panel
+            // straight away, so a second click only made it blink; leave the
+            // icon to the button, which toggles it.
+            if let icon = self.statusItemAnchor(), icon.contains(NSEvent.mouseLocation) { return }
+            self.closePanel()
         }
     }
 
