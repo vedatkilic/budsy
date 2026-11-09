@@ -21,7 +21,7 @@
 
         src = pkgs.fetchurl {
           url = "https://github.com/vedatkilic/budsy/releases/download/v${version}/Budsy-${version}.zip";
-          hash = "sha256-iCMOO6/p3/9vsj/e8gWNtthjvJwmQXj9JwNsfoQbXf0=";
+          hash = "sha256-DHjLnCUK7WgZqnDfxkeh6V6Uuh7LnfdBZTXQ58cXLfk=";
         };
 
         # The release dmg is APFS, which undmg can't read, so each release also

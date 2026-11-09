@@ -43,10 +43,13 @@ if [ -z "${SKIP_NOTARIZE:-}" ]; then
 fi
 
 # The stapled app as a zip, for package managers that can't mount an APFS dmg
-# (the Nix flake unpacks this one). ditto keeps symlinks and the signature.
+# (the Nix flake unpacks this one). --norsrc --noextattr matter: without them
+# ditto stores AppleDouble "._*" entries, which a plain `unzip` drops inside
+# the bundle as extra files and the signature's seal breaks ("a sealed
+# resource is missing or invalid").
 ZIP="$DIST/Budsy-$VERSION.zip"
 rm -f "$ZIP"
-ditto -c -k --keepParent "$APP_NAME.app" "$ZIP"
+ditto -c -k --norsrc --noextattr --keepParent "$APP_NAME.app" "$ZIP"
 
 echo "==> Staging $APP_NAME.app…"
 rm -rf "$STAGE" "$DMG"
