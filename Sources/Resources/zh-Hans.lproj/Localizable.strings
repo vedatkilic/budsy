@@ -171,3 +171,6 @@
 "Both earbuds" = "两只耳机";
 "Earbuds and case" = "耳机和充电盒";
 "Hide icon while disconnected" = "未连接时隐藏图标";
+
+/* Connect card */
+"Opens the panel" = "打开面板";

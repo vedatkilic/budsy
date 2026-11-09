@@ -171,3 +171,6 @@
 "Both earbuds" = "İki kulaklık";
 "Earbuds and case" = "Kulaklıklar ve kutu";
 "Hide icon while disconnected" = "Bağlı değilken simgeyi gizle";
+
+/* Connect card */
+"Opens the panel" = "Paneli açar";

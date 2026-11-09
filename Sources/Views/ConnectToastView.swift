@@ -38,6 +38,10 @@ struct ConnectToastView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // One element for VoiceOver: "<name>, Connected, <battery>", which
+        // opens the panel.
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Text("Opens the panel"))
         .modifier(PanelChrome())
         .focusEffectDisabled()
     }

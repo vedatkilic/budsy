@@ -171,3 +171,6 @@
 "Both earbuds" = "Оба наушника";
 "Earbuds and case" = "Наушники и кейс";
 "Hide icon while disconnected" = "Скрывать значок без подключения";
+
+/* Connect card */
+"Opens the panel" = "Открывает панель";

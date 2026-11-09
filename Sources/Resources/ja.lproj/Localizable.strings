@@ -171,3 +171,6 @@
 "Both earbuds" = "両方のイヤホン";
 "Earbuds and case" = "イヤホンとケース";
 "Hide icon while disconnected" = "未接続時はアイコンを隠す";
+
+/* Connect card */
+"Opens the panel" = "パネルを開きます";
