@@ -4,7 +4,8 @@ set -euo pipefail
 # Release build for direct distribution (GitHub, Homebrew): builds Budsy.app,
 # signs it with the Developer ID identity (hardened runtime, timestamp),
 # notarizes and staples it, then wraps it in a drag-to-Applications .dmg that
-# is itself signed, notarized and stapled. Gatekeeper opens the result without
+# is itself signed, notarized and stapled, plus a zip of the stapled app for
+# the Nix flake. Gatekeeper opens the result without
 # the "Apple could not verify…" dialog that used to send the app to the Trash.
 #
 # Needs, once per Mac:
@@ -41,6 +42,12 @@ if [ -z "${SKIP_NOTARIZE:-}" ]; then
   rm -f "$DIST/$APP_NAME.zip"
 fi
 
+# The stapled app as a zip, for package managers that can't mount an APFS dmg
+# (the Nix flake unpacks this one). ditto keeps symlinks and the signature.
+ZIP="$DIST/Budsy-$VERSION.zip"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP_NAME.app" "$ZIP"
+
 echo "==> Staging $APP_NAME.app…"
 rm -rf "$STAGE" "$DMG"
 mkdir -p "$STAGE"
@@ -66,3 +73,5 @@ fi
 
 echo "==> Done: $DMG"
 echo "    SHA256: $(shasum -a 256 "$DMG" | awk '{print $1}')"
+echo "==> Done: $ZIP"
+echo "    SRI (flake.nix): sha256-$(openssl dgst -sha256 -binary "$ZIP" | base64)"

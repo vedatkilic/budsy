@@ -50,6 +50,14 @@ brew trust vedatkilic/tap   # Homebrew requires trusting third-party taps once
 brew install --cask vedatkilic/tap/budsy
 ```
 
+### Nix
+
+```bash
+nix profile install github:vedatkilic/budsy
+```
+
+Budsy is a GUI app bundle, so it lands in `~/.nix-profile/Applications/Budsy.app` rather than on your `PATH`. It installs the same notarized release as the other methods. On first launch it asks for Bluetooth permission.
+
 ### Manual
 
 1. Download the latest `Budsy-<version>.dmg` from [Releases](https://github.com/vedatkilic/budsy/releases).
