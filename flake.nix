@@ -17,11 +17,11 @@
 
       budsy = pkgs.stdenvNoCC.mkDerivation rec {
         pname = "budsy";
-        version = "1.6.0";
+        version = "1.6.1";
 
         src = pkgs.fetchurl {
           url = "https://github.com/vedatkilic/budsy/releases/download/v${version}/Budsy-${version}.zip";
-          hash = "sha256-BZQPnQc9EMj0MApR7fJ1AeK+EaZyx28FLsWiR1kbZs8=";
+          hash = "sha256-TA9gRqnn3tnX6/KlDyo8/VjIAAY3jjEx/vicYi0Ngyc=";
         };
 
         # The release dmg is APFS, which undmg can't read, so each release also
