@@ -35,7 +35,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// True from the moment a connection attempt starts until it succeeds or
     /// fails. Guards against overlapping attempts (auto-connect racing the
     /// wizard) that would otherwise reset the timeout and clobber `silentConnect`.
-    private var isConnecting = false
+    private(set) var isConnecting = false
     /// Current auto-retry attempt (0 = first try). Connection failures trigger
     /// up to `maxConnectRetries` automatic retries before surfacing an error.
     private var connectRetryCount = 0
@@ -54,6 +54,21 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// Bumped per `connect()` so a timed-out attempt's stale resolve task can't
     /// resurrect a connection the manager has already moved past.
     private var connectGeneration = 0
+    /// Stuck-link recovery. When the buds bring the link up themselves (out of
+    /// the case, say), bluetoothd can lose track of the RFCOMM multiplexer they
+    /// opened: every channel open is then refused on the spot ("Already
+    /// connected", or OI_RFCOMM_Connect status 911) while audio plays fine and
+    /// macOS shows the buds connected, so the app never connects until the link
+    /// drops. Each attempt records whether the link was already up; when every
+    /// attempt of a connect failed over a live link, the manager drops the link
+    /// once and dials the buds itself, which rebuilds the multiplexer. Seen on
+    /// Buds4 Pro, 2026-11-10.
+    private var attemptSawLiveLink = false
+    private var liveLinkFailures = 0
+    private var lastLinkReset: Date?
+    /// At most one reset per window, so buds that genuinely refuse the channel
+    /// don't get their audio cut every cooldown.
+    private let linkResetInterval: TimeInterval = 300
     /// Skip the cached SDP record on the next attempt. After sleep or a dropped
     /// link the buds can come back on a different RFCOMM channel while macOS
     /// still serves the old record; the cache hit returned before any fresh
@@ -151,6 +166,33 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         }
     }
 
+    /// The paired Galaxy Buds to talk to: the one macOS reports as connected
+    /// when there is one, otherwise the first paired. Picking blindly by
+    /// `first` dialled a set left in a drawer while another pair was in use.
+    private func preferredPairedBuds() -> IOBluetoothDevice? {
+        guard bluetoothReady,
+              let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]
+        else { return nil }
+        let buds = paired.filter { isGalaxyBudsName($0.name ?? "") }
+        return buds.first(where: { $0.isConnected() }) ?? buds.first
+    }
+
+    /// The one-click "Connect": a foreground connect to the paired buds with
+    /// the model read from their name, so nobody is asked to pick a model for
+    /// buds the Mac already knows. Returns false when there are no paired buds
+    /// (or the name doesn't say which model), and the caller falls back to the
+    /// setup wizard.
+    @discardableResult
+    func connectToPairedBuds() -> Bool {
+        guard let device = preferredPairedBuds(),
+              let model = BudsModel.detect(from: device.name ?? "")
+        else { return false }
+        handedOffToPhone = false
+        suppressAutoConnect = false
+        connect(to: DiscoveredDevice(device: device), model: model)
+        return true
+    }
+
     /// Connects to the first already-connected, paired Galaxy Buds, if any.
     private func attemptAutoConnect(notify: Bool) {
         guard bluetoothReady, !isConnected, rfcommChannel == nil, !isConnecting,
@@ -235,6 +277,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         connectedName = device.name
         connectedDevice = device.device
         connectRetryCount = 0
+        liveLinkFailures = 0
         connectDeadline = Date().addingTimeInterval(connectBudget)
         connectGeneration &+= 1
         DiagnosticsLog.shared.log(
@@ -262,10 +305,11 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         // so its data callbacks bind to the always-pumping main run loop.
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            let channelId = self.resolveChannel(
+            let (channelId, linkUp) = self.resolveChannel(
                 target: target, uuidStrings: uuidStrings, useCache: useCachedSDP)
             await MainActor.run {
                 guard self.isConnecting, self.connectGeneration == generation else { return }
+                self.attemptSawLiveLink = linkUp
                 if let channelId {
                     self.connectViaRFCOMM(
                         device: device, model: model,
@@ -315,6 +359,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         rfcommChannel?.close()
         rfcommChannel = nil
         connectRetryCount += 1
+        if attemptSawLiveLink { liveLinkFailures += 1 }
+        attemptSawLiveLink = false
 
         if connectRetryCount <= maxConnectRetries, Date() < connectDeadline {
             let generation = connectGeneration
@@ -329,9 +375,35 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         }
         DiagnosticsLog.shared.log("connect failed after \(connectRetryCount) attempt(s)")
 
+        if liveLinkFailures == connectRetryCount,
+           lastLinkReset.map({ Date().timeIntervalSince($0) >= linkResetInterval }) ?? true {
+            resetStuckLink(device: device, model: model)
+            return
+        }
+
         // All retries exhausted — surface the error (unless silent/auto-connect).
         failConnect(String(
             localized: "Couldn't connect after multiple tries. Make sure the earbuds aren't connected to another device, then try again."))
+    }
+
+    /// Drops the baseband link and dials the buds again — see `attemptSawLiveLink`.
+    /// Audio stops for a few seconds; it is only done when the control channel
+    /// can't be opened otherwise.
+    private func resetStuckLink(device: DiscoveredDevice, model: BudsModel) {
+        DiagnosticsLog.shared.log(
+            "every attempt failed over a live link: dropping the link to rebuild it")
+        lastLinkReset = Date()
+        preferFreshSDP = true
+        device.device.closeConnection()
+        let generation = connectGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.isConnecting, self.connectGeneration == generation else { return }
+            self.connectRetryCount = 0
+            self.liveLinkFailures = 0
+            self.connectDeadline = Date().addingTimeInterval(self.connectBudget)
+            self.attemptConnection(device: device, model: model)
+        }
     }
 
     /// Ensures the baseband connection, runs an SDP query, and polls for the
@@ -343,10 +415,15 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         target: IOBluetoothDevice,
         uuidStrings: [String],
         useCache: Bool
-    ) -> BluetoothRFCOMMChannelID? {
-        if !target.isConnected() {
+    ) -> (channel: BluetoothRFCOMMChannelID?, linkUp: Bool) {
+        // `isConnected()` reads false for these buds even with audio playing,
+        // so an `openConnection` that succeeds at once also counts as a link
+        // that was already up. Buds that are away fail it after seconds.
+        var linkUp = target.isConnected()
+        if !linkUp {
             let started = Date()
             let result = target.openConnection()
+            linkUp = result == kIOReturnSuccess && Date().timeIntervalSince(started) < 1
             DiagnosticsLog.shared.log(String(
                 format: "openConnection returned 0x%08x in %.1fs (connected=%@)",
                 UInt32(bitPattern: result),
@@ -365,19 +442,19 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         // when recovering from a phone multipoint session.
         if useCache, let match = firstChannel(on: target, uuids: uuids) {
             DiagnosticsLog.shared.log("SPP found in cached SDP: \(match.string) → rfcomm \(match.channel)")
-            return match.channel
+            return (match.channel, linkUp)
         }
         _ = target.performSDPQuery(nil)
         for _ in 0..<40 {
             Thread.sleep(forTimeInterval: 0.2)
             if let match = firstChannel(on: target, uuids: uuids) {
                 DiagnosticsLog.shared.log("SPP found after SDP query: \(match.string) → rfcomm \(match.channel)")
-                return match.channel
+                return (match.channel, linkUp)
             }
         }
         DiagnosticsLog.shared.log(
             "no SPP record for \(uuidStrings.count) known UUIDs; device advertises: \(serviceRecordSummary(of: target))")
-        return nil
+        return (nil, linkUp)
     }
 
     /// First of the candidate UUIDs that resolves to an RFCOMM channel on the
@@ -553,9 +630,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         if let last = lastAutoAttempt, Date().timeIntervalSince(last) < autoConnectCooldown {
             return
         }
-        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice],
-              let device = paired.first(where: { isGalaxyBudsName($0.name ?? "") })
-        else {
+        guard let device = preferredPairedBuds() else {
             notePollSkip("no paired Galaxy Buds")
             return
         }

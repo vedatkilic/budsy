@@ -13,6 +13,23 @@ struct MenuPopoverView: View {
     private var tint: Color { .accentColor }
     private var status: BudsStatus { bluetooth.status }
 
+    /// Set by the Connect button. Quiet auto-connect attempts run in the
+    /// background almost constantly while the buds are away, so the spinner
+    /// follows the user's own request rather than `isConnecting` alone.
+    @State private var connectRequested = false
+    private var showsProgress: Bool { connectRequested && bluetooth.isConnecting }
+
+    /// Connects straight to the paired buds (model read from their name); the
+    /// setup wizard is only for buds this Mac doesn't know yet. A click during
+    /// a quiet auto-connect promotes that attempt so its result is shown.
+    private func connect() {
+        if bluetooth.connectToPairedBuds() {
+            connectRequested = true
+        } else {
+            openDetail()
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if bluetooth.isConnected {
@@ -178,15 +195,30 @@ struct MenuPopoverView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
             Text("No Buds Connected").font(.headline)
-            Text("Connect your Galaxy Buds to get started.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button(action: openDetail) {
-                Text("Connect").frame(maxWidth: .infinity)
+            if let error = bluetooth.connectionError, !showsProgress {
+                Text(verbatim: error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Connect your Galaxy Buds to get started.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Button(action: connect) {
+                HStack(spacing: 6) {
+                    if showsProgress {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text("Connect")
+                }
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(showsProgress)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
