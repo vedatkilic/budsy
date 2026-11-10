@@ -14,8 +14,8 @@
 #   brew install --cask vedatkilic/tap/budsy
 
 cask "budsy" do
-  version "1.6.1"
-  sha256 "6f01e2b356bfae2d1659a559baa21982a552aafc70e79a7efe6353c05cc26ab8"
+  version "1.6.2"
+  sha256 "319dfadae457f54e738d4f369af402168b4e2b8e5c7e2c5cc3504f4552cf12b7"
 
   url "https://github.com/vedatkilic/budsy/releases/download/v#{version}/Budsy-#{version}.dmg"
   name "Budsy"
