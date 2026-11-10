@@ -174,3 +174,9 @@
 
 /* Connect card */
 "Opens the panel" = "패널을 엽니다";
+
+/* App version and updates */
+"Version" = "버전";
+"Budsy %@ is available" = "Budsy %@ 사용 가능";
+"Download update" = "업데이트 다운로드";
+"Budsy is up to date." = "Budsy가 최신 버전입니다.";

@@ -174,3 +174,9 @@
 
 /* Connect card */
 "Opens the panel" = "打开面板";
+
+/* App version and updates */
+"Version" = "版本";
+"Budsy %@ is available" = "Budsy %@ 现已推出";
+"Download update" = "下载更新";
+"Budsy is up to date." = "Budsy 已是最新版本。";

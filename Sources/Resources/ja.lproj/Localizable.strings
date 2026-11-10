@@ -174,3 +174,9 @@
 
 /* Connect card */
 "Opens the panel" = "パネルを開きます";
+
+/* App version and updates */
+"Version" = "バージョン";
+"Budsy %@ is available" = "Budsy %@ が利用可能です";
+"Download update" = "アップデートをダウンロード";
+"Budsy is up to date." = "Budsy は最新です。";

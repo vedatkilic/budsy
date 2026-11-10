@@ -174,3 +174,9 @@
 
 /* Connect card */
 "Opens the panel" = "Öffnet das Menü";
+
+/* App version and updates */
+"Version" = "Version";
+"Budsy %@ is available" = "Budsy %@ ist verfügbar";
+"Download update" = "Update laden";
+"Budsy is up to date." = "Budsy ist auf dem neuesten Stand.";

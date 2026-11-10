@@ -174,3 +174,9 @@
 
 /* Connect card */
 "Opens the panel" = "Paneli açar";
+
+/* App version and updates */
+"Version" = "Sürüm";
+"Budsy %@ is available" = "Budsy %@ yayında";
+"Download update" = "Güncellemeyi indir";
+"Budsy is up to date." = "Budsy güncel.";

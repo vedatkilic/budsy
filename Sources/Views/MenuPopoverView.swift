@@ -153,6 +153,13 @@ struct MenuPopoverView: View {
                     .help("Send audio to phone")
             }
         }
+        #if !APPSTORE
+        if UpdateChecker.shared.updateAvailable, let latest = UpdateChecker.shared.latestVersion {
+            MenuRow(title: "Budsy \(latest) is available", icon: "arrow.down.circle", checked: nil) {
+                UpdateChecker.shared.openReleasePage()
+            }
+        }
+        #endif
         MenuRow(title: "Quit", icon: "power", checked: nil) { NSApplication.shared.terminate(nil) }
     }
 

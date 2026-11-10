@@ -11,6 +11,7 @@ struct AboutView: View {
     @State private var diagnosticsCopied = false
 
     private var status: BudsStatus { bluetooth.status }
+    private var updates: UpdateChecker { .shared }
     private var tint: Color { .accentColor }
     private var supportsFitTest: Bool { bluetooth.connectedModel?.supportsAdaptiveANC == true }
 
@@ -24,6 +25,8 @@ struct AboutView: View {
                 GlassDivider()
                 fitTestSection
             }
+            GlassDivider()
+            appSection
             GlassDivider()
             diagnosticsSection
         }
@@ -56,6 +59,32 @@ struct AboutView: View {
                 tint: tint, prominent: !fitTestActive,
                 action: toggleFitTest
             )
+        }
+    }
+
+    /// Budsy's own version, and — outside the App Store build, which updates
+    /// itself — whether a newer release is out.
+    private var appSection: some View {
+        GlassSection(title: "Budsy") {
+            infoRow("Version", value: updates.currentVersion)
+            #if !APPSTORE
+            if updates.updateAvailable, let latest = updates.latestVersion {
+                GlassFootnote(text: "Budsy \(latest) is available")
+                GlassActionButton(title: "Download update", tint: tint) {
+                    updates.openReleasePage()
+                }
+            } else {
+                if updates.hasChecked {
+                    GlassFootnote(text: "Budsy is up to date.")
+                }
+                GlassActionButton(
+                    title: updates.isChecking ? "Checking for updates…" : "Check for updates",
+                    prominent: false, enabled: !updates.isChecking
+                ) {
+                    Task { await updates.check() }
+                }
+            }
+            #endif
         }
     }
 

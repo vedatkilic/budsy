@@ -54,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bluetooth.onAutoConnected = { [weak controller] in controller?.showConnectToast() }
         // Prime permission and auto-connect to an already-connected Galaxy Buds.
         bluetooth.startAutoConnect()
+        // Look for a newer Budsy release (direct-distribution build only).
+        UpdateChecker.shared.start()
         // Defer the launch panel so the status item is laid out first; otherwise
         // it anchors to a not-yet-positioned button and appears detached.
         // `--settings` opens straight onto the dashboard; used to screenshot
