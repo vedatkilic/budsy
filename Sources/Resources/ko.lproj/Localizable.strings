@@ -171,3 +171,6 @@
 "Both earbuds" = "양쪽 이어버드";
 "Earbuds and case" = "이어버드와 케이스";
 "Hide icon while disconnected" = "연결 해제 시 아이콘 숨기기";
+
+/* Connect card */
+"Opens the panel" = "패널을 엽니다";

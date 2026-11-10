@@ -23,6 +23,8 @@ enum PreviewRenderer {
                    name: "quick-\(suffix)", appearance: appearance, into: directory)
             render(DashboardView(bluetooth: bluetooth).modifier(PanelChrome()),
                    name: "dashboard-\(suffix)", appearance: appearance, into: directory)
+            render(ConnectToastView(bluetooth: bluetooth) {},
+                   name: "connect-card-\(suffix)", appearance: appearance, into: directory)
             let pages: [(String, AnyView)] = [
                 ("sound-anc", AnyView(SoundAncView(bluetooth: bluetooth) {})),
                 ("earbud-controls", AnyView(EarbudControlsView(bluetooth: bluetooth) {})),

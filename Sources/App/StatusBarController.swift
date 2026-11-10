@@ -18,6 +18,11 @@ final class StatusBarController {
 
     private var statusItem: NSStatusItem?
     private var panel: NSPanel?
+    private var toast: NSPanel?
+    private var toastDismiss: DispatchWorkItem?
+    /// Bumped on every show and hide, so a fade-out that finishes after the
+    /// card was shown again doesn't order it out.
+    private var toastGeneration = 0
     private let panelState = PanelState()
     private var outsideClickMonitor: Any?
     private let bluetooth: BluetoothManager
@@ -153,6 +158,7 @@ final class StatusBarController {
     /// Shown on launch / reopen so the user can find the app even if the
     /// menu-bar icon is hard to spot.
     func showPanel() {
+        hideToast(animated: false)
         guard panel?.isVisible != true else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -223,6 +229,138 @@ final class StatusBarController {
               rect.minY >= screen.frame.maxY - 40
         else { return nil }
         return rect
+    }
+
+    // MARK: - Connect toast
+
+    /// How long the connect card stays up before fading out.
+    private static let toastDuration: TimeInterval = 4
+
+    /// Shows the compact "Connected" card under the icon — what the buds
+    /// connecting brings up, instead of the whole panel. Skipped while the
+    /// panel is already open, since it shows the same thing.
+    func showConnectToast() {
+        guard panel?.isVisible != true else { return }
+        // The item may be hidden while disconnected; bring it back first so
+        // the card has an icon to hang under.
+        lastConnected = true
+        refreshStatusItem()
+
+        let toast = toast ?? makeToast()
+        self.toast = toast
+        // A new show supersedes any fade-out still running: its completion
+        // checks the generation and leaves the card alone.
+        toastGeneration &+= 1
+        positionPanel(toast)
+        // The status item may only just have been laid out; anchor again
+        // once it has a frame.
+        DispatchQueue.main.async { [weak self, weak toast] in
+            guard let self, let toast, toast.isVisible else { return }
+            self.anchorPanel(toast)
+        }
+        if !toast.isVisible {
+            toast.alphaValue = 0
+            toast.orderFront(nil)
+            // The shadow is taken from what the window has drawn; recompute it
+            // once the rounded card is on screen, or it traces the full
+            // rectangle of the clear window.
+            DispatchQueue.main.async { toast.invalidateShadow() }
+        }
+        Self.fade(toast, to: 1, duration: 0.25)
+
+        toastDismiss?.cancel()
+        let dismiss = DispatchWorkItem { [weak self] in self?.hideToast(animated: true) }
+        toastDismiss = dismiss
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.toastDuration, execute: dismiss)
+
+        // A non-key panel is never announced, so tell VoiceOver directly.
+        let name = bluetooth.connectedName ?? bluetooth.connectedModel?.rawValue ?? "Galaxy Buds"
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "\(name), \(String(localized: "Connected"))",
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        DiagnosticsLog.shared.log("toast: shown")
+    }
+
+    private func makeToast() -> NSPanel {
+        // The hosting view takes the first click itself: the card's window is
+        // never key, and without it the click that should open the panel would
+        // only be spent bringing the window forward.
+        let content = FirstMouseHostingView(
+            rootView: ConnectToastView(bluetooth: bluetooth) { [weak self] in
+                self?.showPanel()
+            }
+        )
+        let size = content.fittingSize
+        // A plain panel rather than `KeyablePanel`: the card never takes key
+        // focus away from whatever the user is typing in.
+        let toast = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false)
+        toast.contentView = content
+        toast.isFloatingPanel = true
+        toast.level = .popUpMenu
+        toast.backgroundColor = .clear
+        toast.isOpaque = false
+        toast.hasShadow = true
+        toast.hidesOnDeactivate = false
+        // The battery line can change the card's height while it's up (the
+        // case starts reporting, say), and a window grows from its
+        // bottom-left corner; keep it under the icon, as the panel does.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: toast, queue: .main
+        ) { [weak self, weak toast] _ in
+            MainActor.assumeIsolated {
+                guard let self, let toast, toast.isVisible else { return }
+                self.anchorPanel(toast)
+                toast.invalidateShadow()
+            }
+        }
+        return toast
+    }
+
+    private func hideToast(animated: Bool) {
+        toastDismiss?.cancel()
+        toastDismiss = nil
+        guard let toast, toast.isVisible else { return }
+        toastGeneration &+= 1
+        let generation = toastGeneration
+        guard animated, !Self.reduceMotion else {
+            toast.orderOut(nil)
+            toast.alphaValue = 1
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.3
+            toast.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                // Shown again while fading out: that show owns the card now.
+                guard let self, self.toastGeneration == generation else { return }
+                toast.orderOut(nil)
+            }
+        })
+    }
+
+    private static var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// Fades `window` to `alpha`, or sets it at once with Reduce Motion on.
+    private static func fade(_ window: NSWindow, to alpha: CGFloat, duration: TimeInterval) {
+        guard !reduceMotion else {
+            window.alphaValue = alpha
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            window.animator().alphaValue = alpha
+        }
     }
 
     private func closePanel() {
@@ -342,4 +480,10 @@ private struct PanelRootView: View {
             MenuPopoverView(bluetooth: bluetooth, openDetail: openDetail)
         }
     }
+}
+
+/// A hosting view that acts on the first click even though its window isn't
+/// key — the connect card is a non-activating panel that never becomes key.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

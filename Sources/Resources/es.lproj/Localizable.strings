@@ -171,3 +171,6 @@
 "Both earbuds" = "Ambos auriculares";
 "Earbuds and case" = "Auriculares y estuche";
 "Hide icon while disconnected" = "Ocultar el icono si está desconectado";
+
+/* Connect card */
+"Opens the panel" = "Abre el panel";
