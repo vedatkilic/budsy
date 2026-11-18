@@ -13,6 +13,7 @@ swiftc -parse-as-library \
   -sdk "$SDK_PATH" \
   -framework IOBluetooth \
   -framework CoreBluetooth \
+  -framework CoreAudio \
   -framework ServiceManagement \
   -framework AppKit \
   -framework SwiftUI \
@@ -28,6 +29,7 @@ swiftc -parse-as-library \
   Sources/Bluetooth/CRC16.swift \
   Sources/Bluetooth/MessageId.swift \
   Sources/Bluetooth/SppMessage.swift \
+  Sources/Bluetooth/BluetoothAudioOutput.swift \
   Sources/Bluetooth/BluetoothManager.swift \
   Sources/App/PreviewRenderer.swift \
   Sources/Views/BudsModelUI.swift \
