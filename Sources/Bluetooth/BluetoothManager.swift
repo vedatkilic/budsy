@@ -180,18 +180,27 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
 
         // IOBluetooth sometimes reports false while macOS can play audio
         // through the buds. Accept a live Bluetooth output with the same
-        // name, provided only one paired device has that name.
+        // name when it identifies a single physical pair.
         let outputNames = BluetoothAudioOutput.connectedNames()
         return buds.first { device in
             guard let name = device.name, outputNames.contains(name) else { return false }
-            return buds.filter { $0.name == name }.count == 1
+            return uniquelyNamedBud(name, in: buds) != nil
         }
+    }
+
+    private func uniquelyNamedBud(_ name: String, in buds: [IOBluetoothDevice]) -> IOBluetoothDevice? {
+        let matches = buds.filter { $0.name == name }
+        guard let first = matches.first, let address = first.addressString, !address.isEmpty else { return nil }
+        // macOS can return multiple paired records for the same address.
+        guard matches.allSatisfy({ $0.addressString?.caseInsensitiveCompare(address) == .orderedSame })
+        else { return nil }
+        return first
     }
 
     private func hasSystemConnection(to device: DiscoveredDevice) -> Bool {
         if device.device.isConnected() { return true }
-        let matches = pairedBuds().filter { $0.name == device.name }
-        return matches.count == 1 && matches.first?.addressString == device.address &&
+        let match = uniquelyNamedBud(device.name, in: pairedBuds())
+        return match?.addressString?.caseInsensitiveCompare(device.address) == .orderedSame &&
             BluetoothAudioOutput.connectedNames().contains(device.name)
     }
 
