@@ -65,6 +65,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// Buds4 Pro, 2026-11-10.
     private var attemptSawLiveLink = false
     private var liveLinkFailures = 0
+    private var isRebuildingLink = false
     private var lastLinkReset: Date?
     /// At most one reset per window, so buds that genuinely refuse the channel
     /// don't get their audio cut every cooldown.
@@ -166,15 +167,32 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         }
     }
 
-    /// The paired Galaxy Buds to talk to: the one macOS reports as connected
-    /// when there is one, otherwise the first paired. Picking blindly by
-    /// `first` dialled a set left in a drawer while another pair was in use.
-    private func preferredPairedBuds() -> IOBluetoothDevice? {
+    private func pairedBuds() -> [IOBluetoothDevice] {
         guard bluetoothReady,
               let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice]
-        else { return nil }
-        let buds = paired.filter { isGalaxyBudsName($0.name ?? "") }
-        return buds.first(where: { $0.isConnected() }) ?? buds.first
+        else { return [] }
+        return paired.filter { isGalaxyBudsName($0.name ?? "") }
+    }
+
+    private func connectedPairedBuds(in buds: [IOBluetoothDevice]) -> IOBluetoothDevice? {
+        if let connected = buds.first(where: { $0.isConnected() }) { return connected }
+        guard !buds.isEmpty else { return nil }
+
+        // IOBluetooth sometimes reports false while macOS can play audio
+        // through the buds. Accept a live Bluetooth output with the same
+        // name, provided only one paired device has that name.
+        let outputNames = BluetoothAudioOutput.connectedNames()
+        return buds.first { device in
+            guard let name = device.name, outputNames.contains(name) else { return false }
+            return buds.filter { $0.name == name }.count == 1
+        }
+    }
+
+    private func hasSystemConnection(to device: DiscoveredDevice) -> Bool {
+        if device.device.isConnected() { return true }
+        let matches = pairedBuds().filter { $0.name == device.name }
+        return matches.count == 1 && matches.first?.addressString == device.address &&
+            BluetoothAudioOutput.connectedNames().contains(device.name)
     }
 
     /// The one-click "Connect": a foreground connect to the paired buds with
@@ -184,7 +202,8 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// setup wizard.
     @discardableResult
     func connectToPairedBuds() -> Bool {
-        guard let device = preferredPairedBuds(),
+        let buds = pairedBuds()
+        guard let device = connectedPairedBuds(in: buds) ?? buds.first,
               let model = BudsModel.detect(from: device.name ?? "")
         else { return false }
         handedOffToPhone = false
@@ -193,17 +212,19 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         return true
     }
 
-    /// Connects to the first already-connected, paired Galaxy Buds, if any.
+    /// Opens the control channel when macOS already has a link to the buds.
     private func attemptAutoConnect(notify: Bool) {
         guard bluetoothReady, !isConnected, rfcommChannel == nil, !isConnecting,
               !handedOffToPhone else { return }
-        guard let paired = IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] else { return }
-        for device in paired where device.isConnected() && isGalaxyBudsName(device.name ?? "") {
-            autoConnectShouldNotify = notify
-            let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
-            connect(to: DiscoveredDevice(device: device), model: model, silent: true)
+        guard let device = connectedPairedBuds(in: pairedBuds()) else {
+            notePollSkip("waiting for macOS to connect Galaxy Buds")
             return
         }
+        notePollSkip(nil)
+        lastAutoAttempt = Date()
+        autoConnectShouldNotify = notify
+        let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
+        connect(to: DiscoveredDevice(device: device), model: model, silent: true)
     }
 
     func primeBluetoothPermission() {
@@ -278,6 +299,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         connectedDevice = device.device
         connectRetryCount = 0
         liveLinkFailures = 0
+        isRebuildingLink = false
         connectDeadline = Date().addingTimeInterval(connectBudget)
         connectGeneration &+= 1
         DiagnosticsLog.shared.log(
@@ -289,6 +311,10 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
     /// thread, then opens it on the main thread. On failure, retries up to
     /// `maxConnectRetries` times before giving up.
     private func attemptConnection(device: DiscoveredDevice, model: BudsModel) {
+        if silentConnect, connectRetryCount > 0, !isRebuildingLink, !hasSystemConnection(to: device) {
+            waitForSystemConnection()
+            return
+        }
         let target = device.device
         let uuidStrings = model.serviceUUIDCandidates
         let generation = connectGeneration
@@ -362,6 +388,11 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         if attemptSawLiveLink { liveLinkFailures += 1 }
         attemptSawLiveLink = false
 
+        if silentConnect, !isRebuildingLink, !hasSystemConnection(to: device) {
+            waitForSystemConnection()
+            return
+        }
+
         if connectRetryCount <= maxConnectRetries, Date() < connectDeadline {
             let generation = connectGeneration
             // Retry after a short backoff (1s, then 2s).
@@ -386,6 +417,11 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
             localized: "Couldn't connect after multiple tries. Make sure the earbuds aren't connected to another device, then try again."))
     }
 
+    private func waitForSystemConnection() {
+        notePollSkip("waiting for macOS to connect Galaxy Buds")
+        failConnect(nil)
+    }
+
     /// Drops the baseband link and dials the buds again — see `attemptSawLiveLink`.
     /// Audio stops for a few seconds; it is only done when the control channel
     /// can't be opened otherwise.
@@ -393,6 +429,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         DiagnosticsLog.shared.log(
             "every attempt failed over a live link: dropping the link to rebuild it")
         lastLinkReset = Date()
+        isRebuildingLink = true
         preferFreshSDP = true
         device.device.closeConnection()
         let generation = connectGeneration
@@ -538,7 +575,11 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
         handedOffToPhone = false
         suppressAutoConnect = false
         lastAutoAttempt = nil
-        pollAutoConnect()
+        if let device = connectedDevice, let model = connectedModel {
+            connect(to: DiscoveredDevice(device: device), model: model)
+        } else {
+            connectToPairedBuds()
+        }
     }
 
     /// Drops the control channel before the Mac sleeps. The link doesn't survive
@@ -622,23 +663,10 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
                     : "channel still open")
             return
         }
-        notePollSkip(nil)
-        // IOBluetooth `isConnected()` is unreliable for these buds (returns false
-        // even while connected), so we can't gate on it. Instead, attempt the
-        // connection on a cooldown — it succeeds when the buds are reachable and
-        // fails quietly (silentConnect) when they're away.
         if let last = lastAutoAttempt, Date().timeIntervalSince(last) < autoConnectCooldown {
             return
         }
-        guard let device = preferredPairedBuds() else {
-            notePollSkip("no paired Galaxy Buds")
-            return
-        }
-
-        lastAutoAttempt = Date()
-        autoConnectShouldNotify = true
-        let model = BudsModel.detect(from: device.name ?? "") ?? .buds4Pro
-        connect(to: DiscoveredDevice(device: device), model: model, silent: true)
+        attemptAutoConnect(notify: true)
     }
 
     /// Logs a poll-skip reason once per change, keeping the 2s poll from
@@ -967,7 +995,7 @@ final class BluetoothManager: NSObject, @unchecked Sendable {
 
     /// Aborts the in-flight connection. Surfaces an error only for manual
     /// connects; auto-connect attempts fail quietly.
-    private func failConnect(_ message: String) {
+    private func failConnect(_ message: String?) {
         cancelAttemptTimeout()
         isConnecting = false
         rfcommChannel?.close()
